@@ -6,36 +6,38 @@
  */
 package org.hibernate.ogm.datastore.cassandra.impl;
 
-import org.hibernate.ogm.datastore.cassandra.type.impl.CassandraByteType;
+import java.util.HashMap;
+import java.util.Map;
+
 import org.hibernate.ogm.datastore.cassandra.type.impl.CassandraCalendarDateType;
 import org.hibernate.ogm.datastore.cassandra.type.impl.CassandraCalendarType;
 import org.hibernate.ogm.datastore.cassandra.type.impl.CassandraCharacterType;
+import org.hibernate.ogm.datastore.cassandra.type.impl.CassandraDateType;
 import org.hibernate.ogm.datastore.cassandra.type.impl.CassandraPrimitiveByteArrayType;
-import org.hibernate.ogm.datastore.cassandra.type.impl.CassandraShortType;
+import org.hibernate.ogm.datastore.cassandra.type.impl.CassandraSerializableType;
+import org.hibernate.ogm.datastore.cassandra.type.impl.CassandraTimeType;
 import org.hibernate.ogm.datastore.cassandra.type.impl.CassandraTrueFalseType;
+import org.hibernate.ogm.datastore.cassandra.type.impl.CassandraUuidType;
 import org.hibernate.ogm.datastore.cassandra.type.impl.CassandraYesNoType;
 import org.hibernate.ogm.type.impl.BooleanType;
+import org.hibernate.ogm.type.impl.ByteType;
 import org.hibernate.ogm.type.impl.ClassType;
-import org.hibernate.ogm.type.impl.DateType;
 import org.hibernate.ogm.type.impl.DoubleType;
 import org.hibernate.ogm.type.impl.EnumType;
 import org.hibernate.ogm.type.impl.FloatType;
 import org.hibernate.ogm.type.impl.IntegerType;
 import org.hibernate.ogm.type.impl.LongType;
 import org.hibernate.ogm.type.impl.NumericBooleanType;
+import org.hibernate.ogm.type.impl.ShortType;
 import org.hibernate.ogm.type.impl.StringType;
-import org.hibernate.ogm.type.impl.TimeType;
 import org.hibernate.ogm.type.impl.TimestampType;
 import org.hibernate.ogm.type.impl.UrlType;
-
 import org.hibernate.ogm.type.spi.GridType;
+import org.hibernate.type.SerializableToBlobType;
 import org.hibernate.type.StandardBasicTypes;
 import org.hibernate.type.TrueFalseType;
 import org.hibernate.type.Type;
 import org.hibernate.type.YesNoType;
-
-import java.util.HashMap;
-import java.util.Map;
 
 /**
  * Assist the SchemaDefiner by supplying mapping from GridType to CQL3 column type.
@@ -48,7 +50,7 @@ public enum CassandraTypeMapper {
 
 	INSTANCE;
 
-	private Map<GridType, String> mapper = new HashMap<GridType, String>();
+	private final Map<GridType, String> mapper = new HashMap<GridType, String>();
 
 	{
 		mapper.put( ClassType.INSTANCE, "blob" );
@@ -59,13 +61,14 @@ public enum CassandraTypeMapper {
 		mapper.put( StringType.INSTANCE, "text" );
 		mapper.put( UrlType.INSTANCE, "text" );
 		mapper.put( BooleanType.INSTANCE, "boolean" );
-		mapper.put( DateType.INSTANCE, "timestamp" );
 		mapper.put( TimestampType.INSTANCE, "timestamp" );
-		mapper.put( TimeType.INSTANCE, "timestamp" );
+		mapper.put( ByteType.INSTANCE, "tinyint" );
+		mapper.put( ShortType.INSTANCE, "smallint" );
+		mapper.put( CassandraUuidType.INSTANCE, "uuid" );
 
+		mapper.put( CassandraDateType.INSTANCE, "date" );
+		mapper.put( CassandraTimeType.INSTANCE, "time" );
 		mapper.put( CassandraCharacterType.INSTANCE, "text" );
-		mapper.put( CassandraByteType.INSTANCE, "int" );
-		mapper.put( CassandraShortType.INSTANCE, "int" );
 		mapper.put( CassandraCalendarDateType.INSTANCE, "timestamp" );
 		mapper.put( CassandraCalendarType.INSTANCE, "timestamp" );
 		mapper.put( CassandraPrimitiveByteArrayType.INSTANCE, "blob" );
@@ -87,6 +90,10 @@ public enum CassandraTypeMapper {
 
 		if ( gridType instanceof NumericBooleanType ) {
 			return "int";
+		}
+
+		if ( gridType instanceof CassandraSerializableType ) {
+			return "blob";
 		}
 
 		// attempt a sane default for anything we don't recognise
@@ -111,14 +118,6 @@ public enum CassandraTypeMapper {
 			return CassandraPrimitiveByteArrayType.INSTANCE;
 		}
 
-		if ( type == StandardBasicTypes.BYTE ) {
-			return CassandraByteType.INSTANCE;
-		}
-
-		if ( type == StandardBasicTypes.SHORT ) {
-			return CassandraShortType.INSTANCE;
-		}
-
 		if ( type == StandardBasicTypes.CHARACTER ) {
 			return CassandraCharacterType.INSTANCE;
 		}
@@ -129,6 +128,23 @@ public enum CassandraTypeMapper {
 
 		if ( type == TrueFalseType.INSTANCE ) {
 			return CassandraTrueFalseType.INSTANCE;
+		}
+
+		if ( type == StandardBasicTypes.DATE ) {
+			return CassandraDateType.INSTANCE;
+		}
+
+		if ( type == StandardBasicTypes.TIME ) {
+			return CassandraTimeType.INSTANCE;
+		}
+
+		if ( type instanceof SerializableToBlobType ) {
+			SerializableToBlobType<?> exposedType = (SerializableToBlobType<?>) type;
+			return new CassandraSerializableType<>( exposedType.getJavaTypeDescriptor() );
+		}
+
+		if ( type == StandardBasicTypes.UUID_BINARY ) {
+			return CassandraUuidType.INSTANCE;
 		}
 
 		return null;

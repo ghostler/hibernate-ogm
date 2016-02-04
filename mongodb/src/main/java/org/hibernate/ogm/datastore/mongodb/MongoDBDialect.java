@@ -12,6 +12,7 @@ import static org.hibernate.ogm.datastore.mongodb.dialect.impl.MongoDBTupleSnaps
 import static org.hibernate.ogm.datastore.mongodb.dialect.impl.MongoHelpers.hasField;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -23,7 +24,6 @@ import java.util.Set;
 import org.bson.types.ObjectId;
 import org.hibernate.HibernateException;
 import org.hibernate.annotations.common.AssertionFailure;
-import org.hibernate.engine.spi.QueryParameters;
 import org.hibernate.ogm.datastore.document.association.spi.impl.DocumentHelpers;
 import org.hibernate.ogm.datastore.document.cfg.DocumentStoreProperties;
 import org.hibernate.ogm.datastore.document.impl.DotPatternMapHelpers;
@@ -66,6 +66,7 @@ import org.hibernate.ogm.dialect.query.spi.BackendQuery;
 import org.hibernate.ogm.dialect.query.spi.ClosableIterator;
 import org.hibernate.ogm.dialect.query.spi.NoOpParameterMetadataBuilder;
 import org.hibernate.ogm.dialect.query.spi.ParameterMetadataBuilder;
+import org.hibernate.ogm.dialect.query.spi.QueryParameters;
 import org.hibernate.ogm.dialect.query.spi.QueryableGridDialect;
 import org.hibernate.ogm.dialect.spi.AssociationContext;
 import org.hibernate.ogm.dialect.spi.AssociationTypeContext;
@@ -186,15 +187,17 @@ public class MongoDBDialect extends BaseGridDialect implements QueryableGridDial
 	 */
 	private List<Tuple> tuplesResult(EntityKey[] keys, Object[] searchObjects, TupleContext tupleContext, DBCursor cursor) {
 		// The list is initialized with null because some keys might not have a corresponding value in the cursor
-		List<Tuple> tuples = CollectionHelper.initializeSizedList( searchObjects.length, null );
+		Tuple[] tuples = new Tuple[searchObjects.length];
 		for ( DBObject dbObject : cursor ) {
 			for ( int i = 0; i < searchObjects.length; i++ ) {
 				if ( dbObject.get( ID_FIELDNAME ).equals( searchObjects[i] ) ) {
-					tuples.set( i, createTuple( keys[i], tupleContext, dbObject ) );
+					tuples[i] = createTuple( keys[i], tupleContext, dbObject );
+					// We assume there are no duplicated keys
+					break;
 				}
 			}
 		}
-		return tuples;
+		return Arrays.asList( tuples );
 	}
 
 	private Tuple createTuple(EntityKey key, TupleContext tupleContext, DBObject found) {

@@ -17,6 +17,7 @@ import org.hibernate.Session;
 import org.hibernate.Transaction;
 import org.hibernate.ogm.utils.GridDialectType;
 import org.hibernate.ogm.utils.OgmTestCase;
+import org.hibernate.ogm.utils.TestForIssue;
 import org.hibernate.ogm.utils.TestHelper;
 import org.junit.Test;
 
@@ -50,10 +51,10 @@ public class ManyToOneTest extends OgmTestCase {
 		session.clear();
 
 		transaction = session.beginTransaction();
-		emmanuel = (Member) session.get( Member.class, emmanuel.getId() );
+		emmanuel = session.get( Member.class, emmanuel.getId() );
 		jug = emmanuel.getMemberOf();
 		session.delete( emmanuel );
-		jerome = (Member) session.get( Member.class, jerome.getId() );
+		jerome = session.get( Member.class, jerome.getId() );
 		session.delete( jerome );
 		session.delete( jug );
 		transaction.commit();
@@ -63,6 +64,56 @@ public class ManyToOneTest extends OgmTestCase {
 		session.close();
 
 		checkCleanCache();
+	}
+
+	@Test
+	@TestForIssue(jiraKey = "OGM-931")
+	public void canPersistAssociationToDetachedEntity() throws Exception {
+		Session session = openSession();
+		Transaction transaction = session.beginTransaction();
+
+		// Persist employer
+		Employer employer = new Employer();
+		employer.setId( "employer-1" );
+		employer.setName( "Hibernate" );
+		session.save( employer );
+
+		transaction.commit();
+		session.clear();
+
+		transaction = session.beginTransaction();
+
+		// Create employee and associate it with detached employer
+		Employee employee = new Employee();
+		employee.setId( "employee-1" );
+		employee.setName( "DNadar" );
+		employee.setEmployer( employer );
+		session.save( employee );
+
+		transaction.commit();
+		session.clear();
+
+		transaction = session.beginTransaction();
+
+		// Load association from main side
+		Employee loadedEmployee = session.get( Employee.class, "employee-1" );
+		assertThat( loadedEmployee.getEmployer().getName() ).isEqualTo( "Hibernate" );
+
+		transaction.commit();
+		session.clear();
+
+		transaction = session.beginTransaction();
+
+		// Load association from inverse side
+		Employer loadedEmployer = session.get( Employer.class, "employer-1" );
+		assertThat( loadedEmployer.getEmployees() ).onProperty( "name" ).containsOnly( "DNadar" );
+
+		// Clean up
+		session.delete( loadedEmployer.getEmployees().iterator().next() );
+		session.delete( loadedEmployer );
+
+		transaction.commit();
+		session.close();
 	}
 
 	private Long expectedAssociations() {
@@ -94,10 +145,10 @@ public class ManyToOneTest extends OgmTestCase {
 		session.clear();
 
 		transaction = session.beginTransaction();
-		force = (SalesForce) session.get( SalesForce.class, force.getId() );
+		force = session.get( SalesForce.class, force.getId() );
 		assertNotNull( force.getSalesGuys() );
 		assertEquals( 2, force.getSalesGuys().size() );
-		simon = (SalesGuy) session.get( SalesGuy.class, simon.getId() );
+		simon = session.get( SalesGuy.class, simon.getId() );
 		// purposely faulty
 		// force.getSalesGuys().remove( simon );
 		session.delete( simon );
@@ -105,7 +156,7 @@ public class ManyToOneTest extends OgmTestCase {
 		session.clear();
 
 		transaction = session.beginTransaction();
-		force = (SalesForce) session.get( SalesForce.class, force.getId() );
+		force = session.get( SalesForce.class, force.getId() );
 		assertNotNull( force.getSalesGuys() );
 		assertEquals( 1, force.getSalesGuys().size() );
 		session.delete( force.getSalesGuys().iterator().next() );
@@ -139,16 +190,16 @@ public class ManyToOneTest extends OgmTestCase {
 
 		// removing one sales guy, leaving the other in place
 		transaction = session.beginTransaction();
-		force = (SalesForce) session.get( SalesForce.class, force.getId() );
+		force = session.get( SalesForce.class, force.getId() );
 		assertEquals( 2, force.getSalesGuys().size() );
-		SalesGuy salesGuy = (SalesGuy) session.get( SalesGuy.class, eric.getId() );
+		SalesGuy salesGuy = session.get( SalesGuy.class, eric.getId() );
 		salesGuy.setSalesForce( null );
 		force.getSalesGuys().remove( salesGuy );
 		transaction.commit();
 		session.clear();
 
 		transaction = session.beginTransaction();
-		force = (SalesForce) session.get( SalesForce.class, force.getId() );
+		force = session.get( SalesForce.class, force.getId() );
 		assertEquals( 1, force.getSalesGuys().size() );
 		salesGuy = force.getSalesGuys().iterator().next();
 		assertThat( salesGuy.getName() ).isEqualTo( "Simon" );
@@ -242,11 +293,11 @@ public class ManyToOneTest extends OgmTestCase {
 
 		transaction = session.beginTransaction();
 
-		SalesGuy salesGuy = (SalesGuy) session.get( SalesGuy.class, "eric" );
+		SalesGuy salesGuy = session.get( SalesGuy.class, "eric" );
 		assertThat( salesGuy.getSalesForce() ).describedAs( "Stale association should be exposed as null" ).isNull();
 		session.delete( salesGuy );
 
-		salesGuy = (SalesGuy) session.get( SalesGuy.class, "simon" );
+		salesGuy = session.get( SalesGuy.class, "simon" );
 		assertThat( salesGuy.getSalesForce() ).describedAs( "Stale association should be exposed as null" ).isNull();
 		session.delete( salesGuy );
 
@@ -286,7 +337,7 @@ public class ManyToOneTest extends OgmTestCase {
 		session.clear();
 
 		transaction = session.beginTransaction();
-		Court localCourt = (Court) session.get( Court.class, new Court.CourtId( "DE", 123 ) );
+		Court localCourt = session.get( Court.class, new Court.CourtId( "DE", 123 ) );
 		assertThat( localCourt.getGames() ).hasSize( 2 );
 		for ( Game game : localCourt.getGames() ) {
 			session.delete( game );
@@ -308,7 +359,9 @@ public class ManyToOneTest extends OgmTestCase {
 				Beer.class,
 				Brewery.class,
 				Game.class,
-				Court.class
+				Court.class,
+				Employee.class,
+				Employer.class
 		};
 	}
 }

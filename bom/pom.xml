@@ -27,16 +27,14 @@
         <infinispanVersion>8.0.2.Final</infinispanVersion>
         <mongodbVersion>3.0.3</mongodbVersion>
         <fongodbVersion>2.0.2</fongodbVersion>
-        <neo4jVersion>2.2.4</neo4jVersion>
+        <neo4jVersion>2.3.2</neo4jVersion>
         <!-- Update dependency versions accordingly when updating C*  -->
-        <cassandraVersion>2.1.3</cassandraVersion>
+        <cassandraVersion>2.2.0-rc3</cassandraVersion>
         <!-- Update dependency versions accordingly when updating lettuce  -->
-        <lettuceVersion>3.2.Final</lettuceVersion>
+        <lettuceVersion>4.0.2.Final</lettuceVersion>
         <!-- Neo4j supports different versions of Cypher -->
-        <neo4jCypherCompiler19Version>2.0.4</neo4jCypherCompiler19Version>
-        <neo4jCypherCompiler20Version>2.0.4</neo4jCypherCompiler20Version>
-        <neo4jCypherCompiler21Version>2.1.8</neo4jCypherCompiler21Version>
-        <neo4jCypherCompiler22Version>${neo4jVersion}</neo4jCypherCompiler22Version>
+        <neo4jCypherCompiler19Version>2.0.5</neo4jCypherCompiler19Version>
+        <neo4jCypherCompiler22Version>2.2.6</neo4jCypherCompiler22Version>
         <!-- Neo4j does not support Lucene 4 currently-->
         <neo4jLuceneVersion>3.6.2</neo4jLuceneVersion>
         <hibernateVersion>5.0.5.Final</hibernateVersion>
@@ -51,8 +49,10 @@
         <resteasyVersion>3.0.9.Final</resteasyVersion>
         <jacksonVersion>2.4.1</jacksonVersion>
         <parboiledVersion>1.1.7</parboiledVersion>
-        <scalaLibraryVersion>2.10.5</scalaLibraryVersion>
-        <concurrentlinkedhashmapVersion>1.4</concurrentlinkedhashmapVersion>
+        <scalaLibraryVersion>2.11.7</scalaLibraryVersion>
+        <scalaParserCombinatorVersion>1.0.4</scalaParserCombinatorVersion>
+        <concurrentlinkedhashmapVersion>1.4.2</concurrentlinkedhashmapVersion>
+        <commonsLang3Version>3.3.2</commonsLang3Version>
         <asmVersion>5.0.3</asmVersion>
         <luceneVersion>5.3.1</luceneVersion>
 
@@ -61,15 +61,14 @@
              of these libraries through this BOM, these versions are for internal usage to make sure the right
              JARs end up in the C* driver WildFly module
         -->
-        <nettyVersion>3.9.0.Final</nettyVersion>
         <codahaleMetricsVersion>3.0.2</codahaleMetricsVersion>
-        <cassandraGuavaVersion>14.0.1</cassandraGuavaVersion>
+        <cassandraGuavaVersion>16.0.1</cassandraGuavaVersion>
         <!-- slf4J is also being used - luckily it's in synch with the above defined version 1.7.5 -->
         <!-- end of Cassandra dependencies -->
 
-        <lettuceCommonsPoolVersion>2.2</lettuceCommonsPoolVersion>
-        <lettuceGuavaVersion>17.0</lettuceGuavaVersion>
-        <netty4Version>4.0.28.Final</netty4Version>
+        <lettuceCommonsPoolVersion>2.4.2</lettuceCommonsPoolVersion>
+        <lettuceGuavaVersion>18.0</lettuceGuavaVersion>
+        <netty4Version>4.0.26.Final</netty4Version>
     </properties>
 
     <inceptionYear>2010</inceptionYear>

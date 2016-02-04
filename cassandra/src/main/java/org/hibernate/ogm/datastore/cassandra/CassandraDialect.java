@@ -6,12 +6,10 @@
  */
 package org.hibernate.ogm.datastore.cassandra;
 
-import static com.datastax.driver.core.querybuilder.QueryBuilder.delete;
 import static com.datastax.driver.core.querybuilder.QueryBuilder.eq;
-import static com.datastax.driver.core.querybuilder.QueryBuilder.insertInto;
-import static com.datastax.driver.core.querybuilder.QueryBuilder.select;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -19,6 +17,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ExecutionException;
 
 import org.hibernate.HibernateException;
 import org.hibernate.LockMode;
@@ -29,9 +28,16 @@ import org.hibernate.ogm.datastore.cassandra.impl.CassandraDatastoreProvider;
 import org.hibernate.ogm.datastore.cassandra.impl.CassandraTypeMapper;
 import org.hibernate.ogm.datastore.cassandra.logging.impl.Log;
 import org.hibernate.ogm.datastore.cassandra.logging.impl.LoggerFactory;
-import org.hibernate.ogm.datastore.cassandra.model.impl.ResultSetAssociationSnapshot;
-import org.hibernate.ogm.datastore.cassandra.model.impl.ResultSetTupleSnapshot;
+import org.hibernate.ogm.datastore.cassandra.model.impl.ResultSetTupleIterator;
+import org.hibernate.ogm.datastore.cassandra.query.impl.CassandraParameterMetadataBuilder;
+import org.hibernate.ogm.datastore.map.impl.MapAssociationSnapshot;
 import org.hibernate.ogm.datastore.map.impl.MapTupleSnapshot;
+import org.hibernate.ogm.dialect.query.spi.BackendQuery;
+import org.hibernate.ogm.dialect.query.spi.ClosableIterator;
+import org.hibernate.ogm.dialect.query.spi.ParameterMetadataBuilder;
+import org.hibernate.ogm.dialect.query.spi.QueryParameters;
+import org.hibernate.ogm.dialect.query.spi.QueryableGridDialect;
+import org.hibernate.ogm.dialect.query.spi.TypedGridValue;
 import org.hibernate.ogm.dialect.spi.AssociationContext;
 import org.hibernate.ogm.dialect.spi.AssociationTypeContext;
 import org.hibernate.ogm.dialect.spi.DuplicateInsertPreventionStrategy;
@@ -54,9 +60,8 @@ import org.hibernate.persister.entity.Lockable;
 import org.hibernate.type.Type;
 
 import com.datastax.driver.core.BoundStatement;
-import com.datastax.driver.core.DataType;
+import com.datastax.driver.core.ColumnDefinitions;
 import com.datastax.driver.core.PreparedStatement;
-import com.datastax.driver.core.ProtocolVersion;
 import com.datastax.driver.core.RegularStatement;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
@@ -66,28 +71,40 @@ import com.datastax.driver.core.querybuilder.Delete;
 import com.datastax.driver.core.querybuilder.Insert;
 import com.datastax.driver.core.querybuilder.QueryBuilder;
 import com.datastax.driver.core.querybuilder.Select;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
 
 /**
  * Dialect implementation using CQL3 over Cassandra's native transport via java-driver.
  *
  * @author Jonathan Halliday
  */
-public class CassandraDialect implements GridDialect {
+public class CassandraDialect implements GridDialect, QueryableGridDialect<String> {
 
 	private static final Log log = LoggerFactory.getLogger();
 
 	private final CassandraDatastoreProvider provider;
 	private final Session session;
-	private final ProtocolVersion protocolVersion;
+	private final QueryBuilder queryBuilder;
+	private final LoadingCache<String, PreparedStatement> preparedStatementCache;
 
 	public CassandraDialect(CassandraDatastoreProvider provider) {
 		this.provider = provider;
 		session = provider.getSession();
-		protocolVersion = session
-				.getCluster()
-				.getConfiguration()
-				.getProtocolOptions()
-				.getProtocolVersionEnum();
+		queryBuilder = provider.getQueryBuilder();
+
+
+		preparedStatementCache = CacheBuilder.newBuilder()
+				.maximumSize( 100000 )
+				.build(
+						new CacheLoader<String, PreparedStatement>() {
+							@Override
+							public PreparedStatement load(String query) throws Exception {
+								return session.prepare( query );
+							}
+						}
+				);
 	}
 
 	@Override
@@ -99,18 +116,24 @@ public class CassandraDialect implements GridDialect {
 
 	private ResultSet bindAndExecute(Object[] columnValues, RegularStatement statement) {
 
+		PreparedStatement preparedStatement;
 		try {
-			PreparedStatement preparedStatement = session.prepare( statement );
+			preparedStatement = preparedStatementCache.get( statement.getQueryString() );
+			session.prepare( statement );
+		}
+		catch (ExecutionException e) {
+			throw log.failToPrepareCQL( statement.getQueryString(), e.getCause() );
+		}
+
+		try {
 			BoundStatement boundStatement = new BoundStatement( preparedStatement );
 			for ( int i = 0; i < columnValues.length; i++ ) {
-				DataType dataType = preparedStatement.getVariables().getType( i );
-				boundStatement.setBytesUnsafe( i, dataType.serialize( columnValues[i], protocolVersion ) );
+				boundStatement.setObject( i, columnValues[i] );
 			}
 			return session.execute( boundStatement );
 		}
 		catch (DriverException e) {
-			log.failToExecuteCQL( statement.getQueryString(), e );
-			throw e;
+			throw log.failToExecuteCQL( statement.getQueryString(), e );
 		}
 	}
 
@@ -127,7 +150,7 @@ public class CassandraDialect implements GridDialect {
 	@Override
 	public Tuple getTuple(EntityKey key, TupleContext tupleContext) {
 
-		Select select = select().all().from( quote( key.getTable() ) );
+		Select select = queryBuilder.select().all().from( quote( key.getTable() ) );
 		Select.Where selectWhere = select.where( eq( quote( key.getColumnNames()[0] ), QueryBuilder.bindMarker() ) );
 		for ( int i = 1; i < key.getColumnNames().length; i++ ) {
 			selectWhere = selectWhere.and( eq( quote( key.getColumnNames()[i] ), QueryBuilder.bindMarker() ) );
@@ -141,7 +164,7 @@ public class CassandraDialect implements GridDialect {
 		}
 
 		Row row = resultSet.one();
-		Tuple tuple = new Tuple( new ResultSetTupleSnapshot( row, protocolVersion ) );
+		Tuple tuple = new Tuple( new MapTupleSnapshot( tupleFromRow( row ) ) );
 		return tuple;
 	}
 
@@ -175,7 +198,7 @@ public class CassandraDialect implements GridDialect {
 
 		if ( deleteOps.size() > 0 ) {
 
-			Delete.Selection deleteSelection = delete();
+			Delete.Selection deleteSelection = queryBuilder.delete();
 			for ( TupleOperation tupleOperation : deleteOps ) {
 				deleteSelection.column( quote( tupleOperation.getColumn() ) );
 			}
@@ -196,7 +219,7 @@ public class CassandraDialect implements GridDialect {
 		if ( updateOps.size() > 0 ) {
 
 			// insert and update are both 'upsert' in cassandra.
-			Insert insert = insertInto( quote( key.getTable() ) );
+			Insert insert = queryBuilder.insertInto( quote( key.getTable() ) );
 			List<Object> columnValues = new LinkedList<>();
 			Set<String> seenColNames = new HashSet<>();
 			for ( int i = 0; i < updateOps.size(); i++ ) {
@@ -220,7 +243,7 @@ public class CassandraDialect implements GridDialect {
 	@Override
 	public void removeTuple(EntityKey key, TupleContext tupleContext) {
 
-		Delete delete = delete().from( quote( key.getTable() ) );
+		Delete delete = queryBuilder.delete().from( quote( key.getTable() ) );
 		Delete.Where deleteWhere = delete.where(
 				eq( quote( key.getColumnNames()[0] ), QueryBuilder.bindMarker() )
 		);
@@ -237,7 +260,7 @@ public class CassandraDialect implements GridDialect {
 		@SuppressWarnings("unchecked")
 		List<Column> tablePKCols = tableMetadata.getPrimaryKey().getColumns();
 
-		Select select = select().all().from( quote( key.getTable() ) );
+		Select select = queryBuilder.select().all().from( quote( key.getTable() ) );
 		Select.Where selectWhere = select.where( eq( quote( key.getColumnNames()[0] ), QueryBuilder.bindMarker() ) );
 		for ( int i = 1; i < key.getColumnNames().length; i++ ) {
 			selectWhere = selectWhere.and( eq( quote( key.getColumnNames()[i] ), QueryBuilder.bindMarker() ) );
@@ -270,22 +293,37 @@ public class CassandraDialect implements GridDialect {
 			return null;
 		}
 
-		Association association = new Association(
-				new ResultSetAssociationSnapshot(
-						key,
-						resultSet,
-						tableMetadata,
-						protocolVersion
-				)
-		);
+		Map<RowKey, Map<String, Object>> rowKeyMap = new HashMap<>();
+
+		List<String> combinedKeys = new LinkedList<String>();
+		combinedKeys.addAll( Arrays.asList( key.getColumnNames() ) );
+		for ( Object column : tableMetadata.getPrimaryKey().getColumns() ) {
+			String name = ((Column) column).getName();
+			if ( !combinedKeys.contains( name ) ) {
+				combinedKeys.add( name );
+			}
+		}
+		String[] columnNames = combinedKeys.toArray( new String[combinedKeys.size()] );
+
+		for ( Row row : resultSet ) {
+
+			Map<String, Object> rowMap = tupleFromRow( row );
+			Object[] resultColumnValues = new Object[columnNames.length];
+			for ( int i = 0; i < columnNames.length; i++ ) {
+				resultColumnValues[i] = rowMap.get( columnNames[i] );
+			}
+			RowKey rowKey = new RowKey( columnNames, resultColumnValues );
+			rowKeyMap.put( rowKey, rowMap );
+		}
+
+		Association association = new Association( new MapAssociationSnapshot( rowKeyMap ) );
 
 		return association;
 	}
 
 	@Override
 	public Association createAssociation(AssociationKey key, AssociationContext associationContext) {
-		Table tableMetadata = provider.getMetaDataCache().get( key.getTable() );
-		return new Association( new ResultSetAssociationSnapshot( key, null, tableMetadata, protocolVersion ) );
+		return new Association( new MapAssociationSnapshot( new HashMap<RowKey, Map<String, Object>>() ) );
 	}
 
 	@Override
@@ -332,7 +370,7 @@ public class CassandraDialect implements GridDialect {
 		for ( AssociationOperation op : updateOps ) {
 			Tuple value = op.getValue();
 			List<Object> columnValues = new ArrayList<>();
-			Insert insert = insertInto( quote( key.getTable() ) );
+			Insert insert = queryBuilder.insertInto( quote( key.getTable() ) );
 			for ( String columnName : value.getColumnNames() ) {
 				insert.value( quote( columnName ), QueryBuilder.bindMarker( columnName ) );
 				columnValues.add( value.get( columnName ) );
@@ -344,7 +382,7 @@ public class CassandraDialect implements GridDialect {
 		for ( AssociationOperation op : deleteOps ) {
 
 			RowKey value = op.getKey();
-			Delete.Selection deleteSelection = delete();
+			Delete.Selection deleteSelection = queryBuilder.delete();
 			for ( String columnName : op.getKey().getColumnNames() ) {
 				if ( !keyColumnNames.contains( columnName ) ) {
 					deleteSelection.column( quote( columnName ) );
@@ -376,7 +414,7 @@ public class CassandraDialect implements GridDialect {
 			keyColumnNames.add( column.getName() );
 		}
 
-		Delete.Selection deleteSelection = delete();
+		Delete.Selection deleteSelection = queryBuilder.delete();
 		for ( String columnName : key.getColumnNames() ) {
 			if ( !keyColumnNames.contains( columnName ) ) {
 				deleteSelection.column( quote( columnName ) );
@@ -411,7 +449,7 @@ public class CassandraDialect implements GridDialect {
 	public void forEachTuple(ModelConsumer consumer, EntityKeyMetadata... entityKeyMetadatas) {
 		for ( EntityKeyMetadata entityKeyMetadata : entityKeyMetadatas ) {
 
-			Select select = select().all().from( quote( entityKeyMetadata.getTable() ) );
+			Select select = queryBuilder.select().all().from( quote( entityKeyMetadata.getTable() ) );
 
 			ResultSet resultSet;
 			try {
@@ -423,10 +461,22 @@ public class CassandraDialect implements GridDialect {
 			Iterator<Row> iter = resultSet.iterator();
 			while ( iter.hasNext() ) {
 				Row row = iter.next();
-				Tuple tuple = new Tuple( new ResultSetTupleSnapshot( row, protocolVersion ) );
-				consumer.consume( tuple );
+				consumer.consume( new Tuple( new MapTupleSnapshot( tupleFromRow( row ) ) ) );
 			}
 		}
+	}
+
+	public static Map<String, Object> tupleFromRow(Row row) {
+		Map<String, Object> map = new HashMap<>();
+
+		ColumnDefinitions columnDefinitions = row.getColumnDefinitions();
+		int count = columnDefinitions.size();
+		for ( int index = 0; index < count; index++ ) {
+			String columnName = columnDefinitions.getName( index );
+			Object value = row.getObject( index );
+			map.put( columnName, value );
+		}
+		return map;
 	}
 
 	@Override
@@ -449,5 +499,49 @@ public class CassandraDialect implements GridDialect {
 	@Override
 	public DuplicateInsertPreventionStrategy getDuplicateInsertPreventionStrategy(EntityKeyMetadata entityKeyMetadata) {
 		return null;
+	}
+
+	@Override
+	public ClosableIterator<Tuple> executeBackendQuery(
+			BackendQuery<String> query, QueryParameters queryParameters) {
+
+		Object[] parameters = new Object[queryParameters.getPositionalParameters().size()];
+		int i = 0;
+		Tuple dummy = new Tuple();
+
+		for ( TypedGridValue parameter : queryParameters.getPositionalParameters() ) {
+			parameter.getType().nullSafeSet( dummy, parameter.getValue(), new String[]{ "dummy" }, null );
+			parameters[i] = dummy.get( "dummy" );
+			i++;
+		}
+
+		ResultSet resultSet = bindAndExecute(
+				parameters,
+				session.newSimpleStatement( query.getQuery() )
+		);
+
+		int first = 0;
+		if ( queryParameters.getRowSelection().getFirstRow() != null ) {
+			first = queryParameters.getRowSelection().getFirstRow();
+		}
+
+		int max = Integer.MAX_VALUE;
+		if ( queryParameters.getRowSelection().getMaxRows() != null ) {
+			max = queryParameters.getRowSelection().getMaxRows();
+		}
+
+		return new ResultSetTupleIterator( resultSet, first, max );
+	}
+
+	@Override
+	public ParameterMetadataBuilder getParameterMetadataBuilder() {
+		return new CassandraParameterMetadataBuilder( session, provider.getMetaDataCache() );
+	}
+
+	@Override
+	public String parseNativeQuery(String nativeQuery) {
+		// we defer the work, since at this point the table may not yet exist in the db and without
+		// the db server supplied metadata or parsing assistance we can't do much meaningful validation.
+		return nativeQuery;
 	}
 }

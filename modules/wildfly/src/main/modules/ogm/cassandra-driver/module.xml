@@ -11,11 +11,12 @@
     </properties>
     <resources>
         <resource-root path="cassandra-driver-core-${cassandraVersion}.jar" />
-        <resource-root path="netty-${nettyVersion}.jar" />
         <resource-root path="metrics-core-${codahaleMetricsVersion}.jar" />
         <resource-root path="guava-${cassandraGuavaVersion}.jar" />
     </resources>
     <dependencies>
+
+        <module name="io.netty" />
 
         <!-- A dependency for metrics-core -->
         <module name="org.slf4j" />

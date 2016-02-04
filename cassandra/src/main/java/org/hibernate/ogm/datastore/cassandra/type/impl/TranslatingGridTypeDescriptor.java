@@ -7,18 +7,16 @@
 package org.hibernate.ogm.datastore.cassandra.type.impl;
 
 import org.hibernate.ogm.model.spi.Tuple;
-
 import org.hibernate.ogm.type.descriptor.impl.BasicGridBinder;
 import org.hibernate.ogm.type.descriptor.impl.BasicGridExtractor;
 import org.hibernate.ogm.type.descriptor.impl.GridTypeDescriptor;
 import org.hibernate.ogm.type.descriptor.impl.GridValueBinder;
 import org.hibernate.ogm.type.descriptor.impl.GridValueExtractor;
-
 import org.hibernate.type.descriptor.WrapperOptions;
 import org.hibernate.type.descriptor.java.JavaTypeDescriptor;
 
 /**
- * Cassandra has a more limited range of types than many RDBMS (e.g. no numerics smaller than int),
+ * Cassandra has a more limited range of types than many RDBMS,
  * though it does also have native support for some types they typically lack (e.g. UUIDs).
  * The Cassandra java-driver is very fussy about type bindings, with no support for implicit conversions
  * even when they are safe.
@@ -29,9 +27,9 @@ import org.hibernate.type.descriptor.java.JavaTypeDescriptor;
  */
 public class TranslatingGridTypeDescriptor implements GridTypeDescriptor {
 
-	private final Class targetClass;
+	private final Class<?> targetClass;
 
-	public TranslatingGridTypeDescriptor(Class targetClass) {
+	public TranslatingGridTypeDescriptor(Class<?> targetClass) {
 		this.targetClass = targetClass;
 	}
 
